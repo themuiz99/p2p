@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="th" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>P2P ไททันแชร์ - ส่งข้อความและไฟล์เรียลไทม์</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0b0f19',
+                        darkCard: '#1e293b',
+                        darkCardHover: '#334155',
+                        neonPurple: '#a855f7',
+                        neonPink: '#ec4899',
+                        neonBlue: '#3b82f6',
+                        neonCyan: '#06b6d4',
+                        neonGreen: '#10b981'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PeerJS CDN -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+        body, html {
+            font-family: 'Prompt', sans-serif;
+            background-color: #0b0f19;
+            color: #f8fafc;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col bg-darkBg text-slate-100 antialiased selection:bg-purple-500 selection:text-white overflow-hidden">
+
+    <!-- Main Workspace Container -->
+    <main class="flex-1 max-w-5xl w-full mx-auto p-2 sm:p-4 flex flex-col gap-3 h-full overflow-hidden box-border">
+
+        <!-- สถานะการเชื่อมต่ออัตโนมัติ -->
+        <section class="bg-darkCard border border-slate-800 rounded-xl p-3 sm:p-4 shadow-lg relative overflow-hidden shrink-0">
+            <div class="absolute -right-10 -top-10 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -left-10 -bottom-10 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2.5">
+                    <span id="statusIndicator" class="w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-md shadow-amber-500/50 animate-ping"></span>
+                    <div>
+                        <h2 id="statusText" class="text-xs sm:text-sm font-semibold text-slate-200">กำลังเชื่อมต่ออัตโนมัติ...</h2>
+                        <p id="peerInfo" class="text-[10px] sm:text-xs text-slate-400 mt-0.5">กำลังค้นหาอุปกรณ์อีกเครื่อง...</p>
+                    </div>
+                </div>
+                <button id="btnReconnect" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 rounded-lg border border-slate-700 text-[11px] font-semibold transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-rotate"></i> เชื่อมต่อใหม่
+                </button>
+            </div>
+        </section>
+
+        <!-- Workspace แชทและส่งไฟล์ -->
+        <section class="bg-darkCard border border-slate-800 rounded-xl shadow-xl flex flex-col flex-1 overflow-hidden relative">
+            
+            <!-- Chat Header Bar -->
+            <div class="bg-[#0f172a] px-4 py-3 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold shadow-md">
+                        <i class="fa-solid fa-comments"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xs sm:text-sm font-semibold text-slate-100">ห้องสนทนาและส่งไฟล์สด</h3>
+                        <p class="text-[10px] text-slate-400">รองรับข้อความ รูปภาพ วิดีโอ และไฟล์เอกสาร</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="btnClearChat" class="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all flex items-center gap-1">
+                        <i class="fa-solid fa-trash-can text-red-400"></i> ล้างหน้าจอ
+                    </button>
+                </div>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="chatMessages" class="flex-1 p-3 sm:p-4 overflow-y-auto flex flex-col gap-3 bg-[#0b0f19]/60">
+                <!-- Welcome Notice -->
+                <div class="flex justify-center my-2">
+                    <div class="bg-slate-900/90 border border-slate-800 text-slate-400 text-[11px] px-3 py-2 rounded-xl text-center max-w-sm shadow-inner">
+                        <i class="fa-solid fa-shield-halved text-purple-400 mr-1"></i> 
+                        เปิดเว็บไซต์นี้บนโทรศัพท์ 2 เครื่องพร้อมกัน เชื่อมต่ออัตโนมัติทันที!
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Preview Modal/Banner (when file selected) -->
+            <div id="filePreviewContainer" class="hidden px-4 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-2.5 truncate">
+                    <div class="p-1.5 bg-purple-500/20 text-purple-400 rounded-lg">
+                        <i id="previewFileIcon" class="fa-solid fa-file text-sm"></i>
+                    </div>
+                    <div class="truncate">
+                        <p id="previewFileName" class="text-xs font-medium text-slate-200 truncate">ชื่อไฟล์.ext</p>
+                        <p id="previewFileSize" class="text-[10px] text-slate-400">0 KB</p>
+                    </div>
+                </div>
+                <button id="cancelFileBtn" class="text-slate-400 hover:text-red-400 p-1 rounded-lg transition-all">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+
+            <!-- Chat Input Footer Bar -->
+            <div class="p-3 bg-[#0f172a] border-t border-slate-800 flex items-center gap-2 shrink-0">
+                <!-- Attachment Button -->
+                <input type="file" id="fileInput" class="hidden" />
+                <button id="btnAttach" title="แนบไฟล์ (รูป, วิดีโอ, เอกสาร)" class="p-2.5 bg-slate-800 hover:bg-slate-700 text-purple-400 hover:text-purple-300 rounded-xl border border-slate-700 transition-all flex items-center justify-center shrink-0 shadow-md">
+                    <i class="fa-solid fa-paperclip text-sm sm:text-base"></i>
+                </button>
+
+                <!-- Text Message Input -->
+                <div class="flex-1 relative">
+                    <input type="text" id="messageInput" placeholder="พิมพ์ข้อความที่นี่..." disabled
+                        class="w-full px-3 py-2.5 bg-[#0b0f19] border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                </div>
+
+                <!-- Send Button -->
+                <button id="btnSend" disabled class="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl shadow-md shadow-purple-600/30 transition-all flex items-center justify-center gap-1.5 shrink-0 text-xs sm:text-sm">
+                    <span class="hidden sm:inline">ส่ง</span>
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full py-2 text-center text-[10px] sm:text-xs text-slate-500 border-t border-slate-800/60 shrink-0">
+        สร้างโดย : พี่มุ่ยและหนูมะลิจ้า
+    </footer>
+
+    <!-- Custom Toast / Modal Notification System -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // DOM Elements
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const peerInfo = document.getElementById('peerInfo');
+        const btnReconnect = document.getElementById('btnReconnect');
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const btnSend = document.getElementById('btnSend');
+        const btnAttach = document.getElementById('btnAttach');
+        const fileInput = document.getElementById('fileInput');
+        const filePreviewContainer = document.getElementById('filePreviewContainer');
+        const previewFileName = document.getElementById('previewFileName');
+        const previewFileSize = document.getElementById('previewFileSize');
+        const previewFileIcon = document.getElementById('previewFileIcon');
+        const cancelFileBtn = document.getElementById('cancelFileBtn');
+        const btnClearChat = document.getElementById('btnClearChat');
+
+        // Application State & Fixed Global ID for automatic connection
+        let peer = null;
+        let conn = null;
+        let selectedFile = null;
+        const GLOBAL_HOST_ID = 'titan-muiz-private-auto-channel-2026';
+
+        // Toast Notification System
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto px-3 py-2 rounded-xl shadow-xl text-xs font-medium text-white flex items-center gap-2 transition-all transform translate-y-2 opacity-0 animate-fade-in ${
+                type === 'success' ? 'bg-emerald-600 border border-emerald-500' :
+                type === 'error' ? 'bg-red-600 border border-red-500' : 'bg-slate-800 border border-slate-700'
+            }`;
+            
+            let icon = 'fa-info-circle';
+            if (type === 'success') icon = 'fa-circle-check';
+            if (type === 'error') icon = 'fa-triangle-exclamation';
+
+            toast.innerHTML = `<i class="fa-solid ${icon} text-sm"></i><span>${message}</span>`;
+            document.getElementById('toastContainer').appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Update UI state based on connection
+        function setConnectedState(connected) {
+            if (connected) {
+                statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 inline-block shadow-md shadow-emerald-500/50 animate-pulse';
+                statusText.textContent = 'สถานะ: เชื่อมต่อระหว่างอุปกรณ์สำเร็จแล้ว!';
+                peerInfo.textContent = 'พร้อมส่งข้อความและไฟล์หากันได้ทันที';
+                messageInput.disabled = false;
+                btnSend.disabled = false;
+                showToast('อุปกรณ์เชื่อมต่อหากันเรียบร้อยแล้ว!', 'success');
+            } else {
+                statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-md shadow-amber-500/50 animate-ping';
+                statusText.textContent = 'สถานะ: กำลังรอเชื่อมต่อกับอีกเครื่อง...';
+                peerInfo.textContent = 'โปรดเปิดเว็บไซต์นี้บนอุปกรณ์อีกเครื่อง';
+                messageInput.disabled = true;
+                btnSend.disabled = true;
+            }
+        }
+
+        // Automatic Connection Logic
+        function initAutoConnect() {
+            if (peer) {
+                peer.destroy();
+            }
+
+            statusText.textContent = 'สถานะ: กำลังสร้างการเชื่อมต่ออัตโนมัติ...';
+            statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-md shadow-amber-500/50 animate-ping';
+
+            peer = new Peer(GLOBAL_HOST_ID);
+
+            peer.on('open', (id) => {
+                peerInfo.textContent = 'สถานะ: อุปกรณ์นี้เป็นแม่ข่ายหลัก';
+                statusText.textContent = 'สถานะ: พร้อมแล้ว (รอมือถืออีกเครื่องเปิดเว็บ)';
+                statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-cyan-500 inline-block shadow-md shadow-cyan-500/50 animate-pulse';
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    if (peer) peer.destroy();
+
+                    peer = new Peer();
+                    peer.on('open', (id) => {
+                        conn = peer.connect(GLOBAL_HOST_ID);
+                        setupConnection();
+                    });
+
+                    peer.on('error', (connectErr) => {
+                        console.error(connectErr);
+                        statusText.textContent = 'สถานะ: เชื่อมต่อไม่สำเร็จ กรุณากดปุ่มเชื่อมต่อใหม่';
+                        statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-red-500 inline-block shadow-md shadow-red-500/50';
+                    });
+                } else {
+                    console.error(err);
+                }
+            });
+        }
+
+        function setupConnection() {
+            if (!conn) return;
+
+            conn.on('open', () => {
+                setConnectedState(true);
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'text' || data.type === 'file') {
+                    appendMessage({
+                        ...data,
+                        sender: 'remote'
+                    });
+                }
+            });
+
+            conn.on('close', () => {
+                showToast('อุปกรณ์ปลายทางตัดการเชื่อมต่อ', 'error');
+                setConnectedState(false);
+            });
+
+            conn.on('error', (err) => {
+                console.error(err);
+                showToast('เกิดข้อผิดพลาดในการรับ-ส่งข้อมูล', 'error');
+                setConnectedState(false);
+            });
+        }
+
+        btnReconnect.addEventListener('click', () => {
+            showToast('กำลังพยายามเชื่อมต่อใหม่...', 'info');
+            initAutoConnect();
+        });
+
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function appendMessage(data) {
+            const isLocal = data.sender === 'local';
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isLocal ? 'justify-end' : 'justify-start'} w-full`;
+
+            let contentHTML = '';
+
+            if (data.type === 'text') {
+                contentHTML = `<p class="text-xs sm:text-sm break-words whitespace-pre-wrap">${escapeHtml(data.text)}</p>`;
+            } else if (data.type === 'file') {
+                const blob = new Blob([data.data], { type: data.mime });
+                const url = URL.createObjectURL(blob);
+                const fileSizeFormatted = formatBytes(data.size);
+
+                if (data.mime.startsWith('image/')) {
+                    contentHTML = `
+                        <div class="flex flex-col gap-1.5">
+                            <a href="${url}" target="_blank" class="block rounded-lg overflow-hidden border border-slate-700 max-w-[200px] sm:max-w-xs">
+                                <img src="${url}" alt="${escapeHtml(data.name)}" class="w-full h-auto object-cover">
+                            </a>
+                            <div class="flex items-center justify-between gap-3 text-[11px]">
+                                <span class="truncate max-w-[130px] text-slate-300 font-medium">${escapeHtml(data.name)} (${fileSizeFormatted})</span>
+                                <a href="${url}" download="${escapeHtml(data.name)}" class="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all flex items-center gap-1">
+                                    <i class="fa-solid fa-download"></i> ดาวน์โหลด
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                } else if (data.mime.startsWith('video/')) {
+                    contentHTML = `
+                        <div class="flex flex-col gap-1.5">
+                            <video src="${url}" controls class="rounded-lg max-w-[220px] sm:max-w-xs border border-slate-700"></video>
+                            <div class="flex items-center justify-between gap-3 text-[11px]">
+                                <span class="truncate max-w-[130px] text-slate-300 font-medium">${escapeHtml(data.name)} (${fileSizeFormatted})</span>
+                                <a href="${url}" download="${escapeHtml(data.name)}" class="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all flex items-center gap-1">
+                                    <i class="fa-solid fa-download"></i> ดาวน์โหลด
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    contentHTML = `
+                        <div class="flex items-center gap-2.5 p-2.5 bg-slate-900/80 rounded-xl border border-slate-700 min-w-[200px]">
+                            <div class="p-2.5 bg-purple-500/20 text-purple-400 rounded-lg shrink-0">
+                                <i class="fa-solid fa-file-lines text-xl"></i>
+                            </div>
+                            <div class="flex-1 truncate">
+                                <p class="text-xs font-medium text-slate-100 truncate">${escapeHtml(data.name)}</p>
+                                <p class="text-[10px] text-slate-400">${fileSizeFormatted}</p>
+                            </div>
+                            <a href="${url}" download="${escapeHtml(data.name)}" class="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all shrink-0 flex items-center justify-center shadow-md" title="ดาวน์โหลดไฟล์">
+                                <i class="fa-solid fa-download"></i>
+                            </a>
+                        </div>
+                    `;
+                }
+            }
+
+            messageDiv.innerHTML = `
+                <div class="max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 shadow-md ${
+                    isLocal 
+                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-tr-none' 
+                        : 'bg-[#1e293b] border border-slate-700 text-slate-100 rounded-tl-none'
+                }">
+                    <div class="flex items-center justify-between gap-3 mb-1 text-[9px] ${isLocal ? 'text-purple-200' : 'text-slate-400'}">
+                        <span class="font-semibold">${isLocal ? 'คุณ (อุปกรณ์นี้)' : 'อุปกรณ์ปลายทาง'}</span>
+                        <span>${data.time}</span>
+                    </div>
+                    ${contentHTML}
+                </div>
+            `;
+
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text && !selectedFile) return;
+
+            if (selectedFile) {
+                sendFile();
+                return;
+            }
+
+            if (!text) return;
+
+            const messageData = {
+                type: 'text',
+                text: text,
+                time: getCurrentTime()
+            };
+
+            if (conn && conn.open) {
+                conn.send(messageData);
+                appendMessage({
+                    ...messageData,
+                    sender: 'local'
+                });
+                messageInput.value = '';
+            } else {
+                showToast('ยังไม่ได้เชื่อมต่อกับอุปกรณ์อื่น', 'error');
+            }
+        }
+
+        btnSend.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        btnAttach.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+            previewFileName.textContent = file.name;
+            previewFileSize.textContent = formatBytes(file.size);
+
+            if (file.type.startsWith('image/')) {
+                previewFileIcon.className = 'fa-solid fa-file-image text-sm';
+            } else if (file.type.startsWith('video/')) {
+                previewFileIcon.className = 'fa-solid fa-file-video text-sm';
+            } else {
+                previewFileIcon.className = 'fa-solid fa-file-lines text-sm';
+            }
+
+            filePreviewContainer.classList.remove('hidden');
+        });
+
+        cancelFileBtn.addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            filePreviewContainer.classList.add('hidden');
+        });
+
+        function sendFile() {
+            if (!selectedFile) return;
+
+            const file = selectedFile;
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                const fileData = {
+                    type: 'file',
+                    name: file.name,
+                    mime: file.type,
+                    size: file.size,
+                    data: arrayBuffer
+                };
+
+                if (conn && conn.open) {
+                    conn.send(fileData);
+                    appendMessage({
+                        ...fileData,
+                        sender: 'local',
+                        time: getCurrentTime()
+                    });
+                    
+                    selectedFile = null;
+                    fileInput.value = '';
+                    filePreviewContainer.classList.add('hidden');
+                    showToast('ส่งไฟล์เรียบร้อยแล้ว!', 'success');
+                } else {
+                    showToast('ยังไม่ได้เชื่อมต่อกับอุปกรณ์อื่น', 'error');
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        btnClearChat.addEventListener('click', () => {
+            chatMessages.innerHTML = `
+                <div class="flex justify-center my-2">
+                    <div class="bg-slate-900/90 border border-slate-800 text-slate-400 text-[11px] px-3 py-2 rounded-xl text-center max-w-sm shadow-inner">
+                        <i class="fa-solid fa-shield-halved text-purple-400 mr-1"></i> 
+                        ล้างประวัติหน้าจอแชทเรียบร้อยแล้ว
+                    </div>
+                </div>
+            `;
+            showToast('ล้างหน้าจอแชทเรียบร้อย', 'info');
+        });
+
+        window.addEventListener('load', () => {
+            initAutoConnect();
+        });
+    </script>
+</body>
+</html>
