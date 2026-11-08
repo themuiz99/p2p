@@ -183,6 +183,7 @@
         let peer = null;
         let conn = null;
         let selectedFile = null;
+        let reconnectInterval = null;
         const GLOBAL_HOST_ID = 'titan-muiz-private-auto-channel-2026';
 
         // Toast Notification System
@@ -231,17 +232,18 @@
         // Automatic Connection Logic
         function initAutoConnect() {
             if (peer) {
-                peer.destroy();
+                try { peer.destroy(); } catch(e) {}
             }
 
             statusText.textContent = 'สถานะ: กำลังสร้างการเชื่อมต่ออัตโนมัติ...';
             statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-md shadow-amber-500/50 animate-ping';
 
+            // พยายามจอง ID เป็น Host หลักก่อน
             peer = new Peer(GLOBAL_HOST_ID);
 
             peer.on('open', (id) => {
-                peerInfo.textContent = 'สถานะ: อุปกรณ์นี้เป็นแม่ข่ายหลัก';
-                statusText.textContent = 'สถานะ: พร้อมแล้ว (รอมือถืออีกเครื่องเปิดเว็บ)';
+                peerInfo.textContent = 'สถานะ: อุปกรณ์นี้เป็นแม่ข่ายหลัก (รอมือถืออีกเครื่อง)';
+                statusText.textContent = 'สถานะ: พร้อมเชื่อมต่ออัตโนมัติ';
                 statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-cyan-500 inline-block shadow-md shadow-cyan-500/50 animate-pulse';
             });
 
@@ -252,23 +254,57 @@
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
-                    if (peer) peer.destroy();
+                    // ถ้า ID ถูกใช้ไปแล้ว แสดงว่าเป็นเครื่องที่สอง ให้สร้าง Peer สุ่มแล้วต่อหา Host ทันที
+                    if (peer) try { peer.destroy(); } catch(e) {}
 
                     peer = new Peer();
                     peer.on('open', (id) => {
-                        conn = peer.connect(GLOBAL_HOST_ID);
-                        setupConnection();
+                        peerInfo.textContent = 'สถานะ: กำลังเชื่อมต่อไปยังแม่ข่าย...';
+                        connectToHost();
                     });
 
                     peer.on('error', (connectErr) => {
                         console.error(connectErr);
-                        statusText.textContent = 'สถานะ: เชื่อมต่อไม่สำเร็จ กรุณากดปุ่มเชื่อมต่อใหม่';
-                        statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-red-500 inline-block shadow-md shadow-red-500/50';
                     });
                 } else {
                     console.error(err);
                 }
             });
+
+            // เปิดระบบวนลูปตรวจสอบและพยายามเชื่อมต่อใหม่อัตโนมัติทุกๆ 4 วินาที
+            if (!reconnectInterval) {
+                reconnectInterval = setInterval(() => {
+                    if (!conn || !conn.open) {
+                        tryConnectAsClient();
+                    }
+                }, 4000);
+            }
+        }
+
+        function tryConnectAsClient() {
+            if (peer && peer.disconnected) {
+                try { peer.reconnect(); } catch(e) {}
+                return;
+            }
+            if (!conn || !conn.open) {
+                if (peer && !peer.destroyed) {
+                    try {
+                        const testConn = peer.connect(GLOBAL_HOST_ID);
+                        if (testConn) {
+                            conn = testConn;
+                            setupConnection();
+                        }
+                    } catch(e) {}
+                }
+            }
+        }
+
+        function connectToHost() {
+            if (!peer) return;
+            try {
+                conn = peer.connect(GLOBAL_HOST_ID);
+                setupConnection();
+            } catch(e) {}
         }
 
         function setupConnection() {
@@ -288,19 +324,17 @@
             });
 
             conn.on('close', () => {
-                showToast('อุปกรณ์ปลายทางตัดการเชื่อมต่อ', 'error');
                 setConnectedState(false);
             });
 
             conn.on('error', (err) => {
                 console.error(err);
-                showToast('เกิดข้อผิดพลาดในการรับ-ส่งข้อมูล', 'error');
                 setConnectedState(false);
             });
         }
 
         btnReconnect.addEventListener('click', () => {
-            showToast('กำลังพยายามเชื่อมต่อใหม่...', 'info');
+            showToast('กำลังพยายามเชื่อมต่อใหม่ทันที...', 'info');
             initAutoConnect();
         });
 
