@@ -528,6 +528,9 @@
             }
 
             filePreviewContainer.classList.remove('hidden');
+
+            // ส่งไฟล์ทันทีอัตโนมัติ ไม่ต้องรอกดปุ่มส่ง
+            sendFile();
         });
 
         cancelFileBtn.addEventListener('click', () => {
@@ -539,8 +542,16 @@
         function sendFile() {
             if (!selectedFile) return;
 
+            if (!conn || !conn.open) {
+                showToast('กำลังเชื่อมต่อใหม่เพื่อส่งไฟล์...', 'error');
+                tryConnectAsClient();
+                return;
+            }
+
             const file = selectedFile;
             const reader = new FileReader();
+
+            showToast('กำลังส่งไฟล์เรียลไทม์...', 'info');
 
             reader.onload = function(e) {
                 const arrayBuffer = e.target.result;
@@ -549,23 +560,23 @@
                     name: file.name,
                     mime: file.type,
                     size: file.size,
-                    data: arrayBuffer
+                    data: arrayBuffer,
+                    time: getCurrentTime()
                 };
 
                 if (conn && conn.open) {
                     conn.send(fileData);
                     appendMessage({
                         ...fileData,
-                        sender: 'local',
-                        time: getCurrentTime()
+                        sender: 'local'
                     });
                     
                     selectedFile = null;
                     fileInput.value = '';
                     filePreviewContainer.classList.add('hidden');
-                    showToast('ส่งไฟล์เรียบร้อยแล้ว!', 'success');
+                    showToast('ส่งไฟล์สำเร็จเรียบร้อย!', 'success');
                 } else {
-                    showToast('ยังไม่ได้เชื่อมต่อกับอุปกรณ์อื่น', 'error');
+                    showToast('การเชื่อมต่อขัดข้อง กรุณาลองเลือกไฟล์ใหม่อีกครั้ง', 'error');
                 }
             };
 
