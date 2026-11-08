@@ -129,9 +129,15 @@
 
             <!-- Chat Input Footer Bar -->
             <div class="p-3 bg-[#0f172a] border-t border-slate-800 flex items-center gap-2 shrink-0">
+                <!-- Image Only Button -->
+                <input type="file" id="imageInput" accept="image/*" class="hidden" />
+                <button id="btnImageOnly" title="เลือกรูปภาพเท่านั้น" class="p-2.5 bg-slate-800 hover:bg-slate-700 text-pink-400 hover:text-pink-300 rounded-xl border border-slate-700 transition-all flex items-center justify-center shrink-0 shadow-md">
+                    <i class="fa-solid fa-image text-sm sm:text-base"></i>
+                </button>
+
                 <!-- Attachment Button -->
                 <input type="file" id="fileInput" class="hidden" />
-                <button id="btnAttach" title="แนบไฟล์ (รูป, วิดีโอ, เอกสาร)" class="p-2.5 bg-slate-800 hover:bg-slate-700 text-purple-400 hover:text-purple-300 rounded-xl border border-slate-700 transition-all flex items-center justify-center shrink-0 shadow-md">
+                <button id="btnAttach" title="แนบไฟล์ทั่วไป (เอกสาร, วิดีโอ, อื่นๆ)" class="p-2.5 bg-slate-800 hover:bg-slate-700 text-purple-400 hover:text-purple-300 rounded-xl border border-slate-700 transition-all flex items-center justify-center shrink-0 shadow-md">
                     <i class="fa-solid fa-paperclip text-sm sm:text-base"></i>
                 </button>
 
@@ -180,6 +186,8 @@
         const btnSend = document.getElementById('btnSend');
         const btnAttach = document.getElementById('btnAttach');
         const fileInput = document.getElementById('fileInput');
+        const btnImageOnly = document.getElementById('btnImageOnly');
+        const imageInput = document.getElementById('imageInput');
         const filePreviewContainer = document.getElementById('filePreviewContainer');
         const previewFileName = document.getElementById('previewFileName');
         const previewFileSize = document.getElementById('previewFileSize');
@@ -192,12 +200,15 @@
         const modalImage = document.getElementById('modalImage');
         const closeImageModal = document.getElementById('closeImageModal');
 
-        // Application State & Fixed Global ID for automatic connection
+        // Application State & Fixed Global IDs for robust bidirectional connection
         let peer = null;
         let conn = null;
         let selectedFile = null;
         let reconnectInterval = null;
-        const GLOBAL_HOST_ID = 'titan-muiz-private-auto-channel-2026';
+        
+        // ใช้รหัสสลับบทบาทเพื่อให้ทั้ง 2 ฝั่งเชื่อมต่อท่อส่งข้อมูลหากันได้สองทางเสมอ
+        const ID_HOST = 'titan-muiz-channel-host-99';
+        const ID_CLIENT = 'titan-muiz-channel-client-88';
 
         // Toast Notification System
         function showToast(message, type = 'info') {
@@ -244,22 +255,25 @@
             }
         }
 
-        // Automatic Connection Logic
+        // Robust Two-Way Connection Architecture
         function initAutoConnect() {
             if (peer) {
                 try { peer.destroy(); } catch(e) {}
             }
 
-            statusText.textContent = 'สถานะ: กำลังสร้างการเชื่อมต่ออัตโนมัติ...';
+            statusText.textContent = 'สถานะ: กำลังสร้างการเชื่อมต่อสองทางอัตโนมัติ...';
             statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-md shadow-amber-500/50 animate-ping';
 
-            // พยายามจอง ID เป็น Host หลักก่อน
-            peer = new Peer(GLOBAL_HOST_ID);
+            // พยายามสร้าง Peer ด้วย ID_HOST ก่อน
+            peer = new Peer(ID_HOST);
 
             peer.on('open', (id) => {
-                peerInfo.textContent = 'สถานะ: อุปกรณ์นี้เป็นแม่ข่ายหลัก (รอมือถืออีกเครื่อง)';
-                statusText.textContent = 'สถานะ: พร้อมเชื่อมต่ออัตโนมัติ';
+                peerInfo.textContent = 'สถานะ: อุปกรณ์นี้พร้อมรับการเชื่อมต่อ (Host)';
+                statusText.textContent = 'สถานะ: รอการเชื่อมต่อจากอีกเครื่อง';
                 statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-cyan-500 inline-block shadow-md shadow-cyan-500/50 animate-pulse';
+                
+                // พยายามโทรหาฝั่ง Client เผื่อว่าอีกฝั่งเปิดรออยู่แล้ว
+                tryConnectToPeer(ID_CLIENT);
             });
 
             peer.on('connection', (connection) => {
@@ -269,34 +283,50 @@
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
-                    // ถ้า ID ถูกใช้ไปแล้ว แสดงว่าเป็นเครื่องที่สอง ให้สร้าง Peer สุ่มแล้วต่อหา Host ทันที
+                    // ถ้า ID_HOST ถูกใช้ไปแล้ว แสดงว่าเครื่องนี้ต้องสวมบทบาทเป็น CLIENT
                     if (peer) try { peer.destroy(); } catch(e) {}
 
-                    peer = new Peer();
+                    peer = new Peer(ID_CLIENT);
                     peer.on('open', (id) => {
-                        peerInfo.textContent = 'สถานะ: กำลังเชื่อมต่อไปยังแม่ข่าย...';
-                        connectToHost();
+                        peerInfo.textContent = 'สถานะ: อุปกรณ์นี้เชื่อมต่อไปยัง Host...';
+                        statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-cyan-500 inline-block shadow-md shadow-cyan-500/50 animate-pulse';
+                        
+                        // ต่อหา Host ทันที
+                        connectToTarget(ID_HOST);
                     });
 
-                    peer.on('error', (connectErr) => {
-                        console.error(connectErr);
+                    peer.on('connection', (connection) => {
+                        conn = connection;
+                        setupConnection();
+                    });
+
+                    peer.on('error', (clientErr) => {
+                        console.error(clientErr);
                     });
                 } else {
                     console.error(err);
                 }
             });
 
-            // เปิดระบบวนลูปตรวจสอบและพยายามเชื่อมต่อใหม่อัตโนมัติทุกๆ 4 วินาที
+            // เปิดระบบวนลูปตรวจสอบและพยายามเชื่อมต่อใหม่อัตโนมัติทุกๆ 3 วินาที
             if (!reconnectInterval) {
                 reconnectInterval = setInterval(() => {
                     if (!conn || !conn.open) {
-                        tryConnectAsClient();
+                        tryConnectToPeer(peer && peer.id === ID_HOST ? ID_CLIENT : ID_HOST);
                     }
-                }, 4000);
+                }, 3000);
             }
         }
 
-        function tryConnectAsClient() {
+        function connectToTarget(targetId) {
+            if (!peer) return;
+            try {
+                conn = peer.connect(targetId);
+                setupConnection();
+            } catch(e) {}
+        }
+
+        function tryConnectToPeer(targetId) {
             if (peer && peer.disconnected) {
                 try { peer.reconnect(); } catch(e) {}
                 return;
@@ -304,7 +334,7 @@
             if (!conn || !conn.open) {
                 if (peer && !peer.destroyed) {
                     try {
-                        const testConn = peer.connect(GLOBAL_HOST_ID);
+                        const testConn = peer.connect(targetId);
                         if (testConn) {
                             conn = testConn;
                             setupConnection();
@@ -314,18 +344,9 @@
             }
         }
 
-        function connectToHost() {
-            if (!peer) return;
-            try {
-                conn = peer.connect(GLOBAL_HOST_ID);
-                setupConnection();
-            } catch(e) {}
-        }
-
         function setupConnection() {
             if (!conn) return;
 
-            // ตรวจสอบสถานะทันทีหากการเชื่อมต่อเปิดอยู่แล้ว (แก้ปัญหาฝั่งแม่ข่ายไม่ปลดล็อกปุ่มส่ง)
             if (conn.open) {
                 setConnectedState(true);
             }
@@ -513,6 +534,23 @@
             fileInput.click();
         });
 
+        btnImageOnly.addEventListener('click', () => {
+            imageInput.click();
+        });
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+            previewFileName.textContent = file.name;
+            previewFileSize.textContent = formatBytes(file.size);
+            previewFileIcon.className = 'fa-solid fa-file-image text-sm';
+
+            filePreviewContainer.classList.remove('hidden');
+            sendFile();
+        });
+
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -538,6 +576,7 @@
         cancelFileBtn.addEventListener('click', () => {
             selectedFile = null;
             fileInput.value = '';
+            imageInput.value = '';
             filePreviewContainer.classList.add('hidden');
         });
 
@@ -546,7 +585,7 @@
 
             if (!conn || !conn.open) {
                 showToast('กำลังเชื่อมต่อใหม่เพื่อส่งไฟล์...', 'error');
-                tryConnectAsClient();
+                tryConnectToPeer(peer && peer.id === ID_HOST ? ID_CLIENT : ID_HOST);
                 return;
             }
 
@@ -575,6 +614,7 @@
                     
                     selectedFile = null;
                     fileInput.value = '';
+                    imageInput.value = '';
                     filePreviewContainer.classList.add('hidden');
                     showToast('ส่งไฟล์สำเร็จเรียบร้อย!', 'success');
                 } else {
