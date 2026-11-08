@@ -90,10 +90,13 @@
                     </div>
                     <div>
                         <h3 class="text-xs sm:text-sm font-semibold text-slate-100">ห้องสนทนาและส่งไฟล์สด</h3>
-                        <p class="text-[10px] text-slate-400">รองรับข้อความ รูปภาพ วิดีโอ และไฟล์เอกสาร</p>
+                        <p class="text-[10px] text-slate-400">รองรับข้อความ รูปภาพ วิดีโอ และไฟล์เอกสารขนาดใหญ่</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
+                    <button id="btnRefreshSync" class="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg border border-slate-700 transition-all flex items-center gap-1" title="รีเฟรชและซิงค์การเชื่อมต่อ">
+                        <i class="fa-solid fa-rotate-right"></i> รีเฟรชข้อความ
+                    </button>
                     <button id="btnClearChat" class="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all flex items-center gap-1">
                         <i class="fa-solid fa-trash-can text-red-400"></i> ล้างหน้าจอ
                     </button>
@@ -111,20 +114,30 @@
                 </div>
             </div>
 
-            <!-- File Preview Modal/Banner (when file selected) -->
-            <div id="filePreviewContainer" class="hidden px-4 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between shrink-0">
-                <div class="flex items-center gap-2.5 truncate">
-                    <div class="p-1.5 bg-purple-500/20 text-purple-400 rounded-lg">
-                        <i id="previewFileIcon" class="fa-solid fa-file text-sm"></i>
+            <!-- File Progress / Preview Container -->
+            <div id="filePreviewContainer" class="hidden px-4 py-3 bg-slate-900/95 border-t border-slate-800 flex flex-col gap-2 shrink-0">
+                <div class="flex items-center justify-between truncate">
+                    <div class="flex items-center gap-2.5 truncate">
+                        <div class="p-1.5 bg-purple-500/20 text-purple-400 rounded-lg">
+                            <i id="previewFileIcon" class="fa-solid fa-file text-sm"></i>
+                        </div>
+                        <div class="truncate">
+                            <p id="previewFileName" class="text-xs font-medium text-slate-200 truncate">ชื่อไฟล์.ext</p>
+                            <p id="previewFileSize" class="text-[10px] text-slate-400">0 KB</p>
+                        </div>
                     </div>
-                    <div class="truncate">
-                        <p id="previewFileName" class="text-xs font-medium text-slate-200 truncate">ชื่อไฟล์.ext</p>
-                        <p id="previewFileSize" class="text-[10px] text-slate-400">0 KB</p>
-                    </div>
+                    <button id="cancelFileBtn" class="text-slate-400 hover:text-red-400 p-1 rounded-lg transition-all">
+                        <i class="fa-solid fa-xmark text-base"></i>
+                    </button>
                 </div>
-                <button id="cancelFileBtn" class="text-slate-400 hover:text-red-400 p-1 rounded-lg transition-all">
-                    <i class="fa-solid fa-xmark text-base"></i>
-                </button>
+                <!-- Progress Bar -->
+                <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div id="fileProgressBar" class="bg-gradient-to-r from-purple-500 to-pink-500 h-2 w-0 transition-all duration-150"></div>
+                </div>
+                <div class="flex justify-between text-[10px] text-slate-400">
+                    <span id="fileProgressText">กำลังเตรียมส่ง...</span>
+                    <span id="fileProgressPercent">0%</span>
+                </div>
             </div>
 
             <!-- Chat Input Footer Bar -->
@@ -188,11 +201,17 @@
         const fileInput = document.getElementById('fileInput');
         const btnImageOnly = document.getElementById('btnImageOnly');
         const imageInput = document.getElementById('imageInput');
+        
         const filePreviewContainer = document.getElementById('filePreviewContainer');
         const previewFileName = document.getElementById('previewFileName');
         const previewFileSize = document.getElementById('previewFileSize');
         const previewFileIcon = document.getElementById('previewFileIcon');
         const cancelFileBtn = document.getElementById('cancelFileBtn');
+        const fileProgressBar = document.getElementById('fileProgressBar');
+        const fileProgressText = document.getElementById('fileProgressText');
+        const fileProgressPercent = document.getElementById('fileProgressPercent');
+        
+        const btnRefreshSync = document.getElementById('btnRefreshSync');
         const btnClearChat = document.getElementById('btnClearChat');
         
         // Image Modal Elements
@@ -200,15 +219,16 @@
         const modalImage = document.getElementById('modalImage');
         const closeImageModal = document.getElementById('closeImageModal');
 
-        // Application State & Fixed Global IDs for robust bidirectional connection
+        // Application State & Fixed Global IDs
         let peer = null;
         let conn = null;
         let selectedFile = null;
         let reconnectInterval = null;
         
-        // ใช้รหัสสลับบทบาทเพื่อให้ทั้ง 2 ฝั่งเชื่อมต่อท่อส่งข้อมูลหากันได้สองทางเสมอ
         const ID_HOST = 'titan-muiz-channel-host-99';
         const ID_CLIENT = 'titan-muiz-channel-client-88';
+        
+        const CHUNK_SIZE = 16384; // 16KB per chunk for reliable chunked streaming
 
         // Toast Notification System
         function showToast(message, type = 'info') {
@@ -237,12 +257,11 @@
             }, 3000);
         }
 
-        // Update UI state based on connection
         function setConnectedState(connected) {
             if (connected) {
                 statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 inline-block shadow-md shadow-emerald-500/50 animate-pulse';
                 statusText.textContent = 'สถานะ: เชื่อมต่อระหว่างอุปกรณ์สำเร็จแล้ว!';
-                peerInfo.textContent = 'พร้อมส่งข้อความและไฟล์หากันได้สองทางทันที';
+                peerInfo.textContent = 'พร้อมส่งข้อความและไฟล์ขนาดใหญ่แบบเห็นเปอร์เซ็นต์';
                 messageInput.disabled = false;
                 btnSend.disabled = false;
                 showToast('อุปกรณ์เชื่อมต่อหากันเรียบร้อยแล้ว!', 'success');
@@ -255,24 +274,20 @@
             }
         }
 
-        // Robust Two-Way Connection Architecture
         function initAutoConnect() {
             if (peer) {
                 try { peer.destroy(); } catch(e) {}
             }
 
-            statusText.textContent = 'สถานะ: กำลังสร้างการเชื่อมต่อสองทางอัตโนมัติ...';
+            statusText.textContent = 'สถานะ: กำลังสร้างการเชื่อมต่ออัตโนมัติ...';
             statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-md shadow-amber-500/50 animate-ping';
 
-            // พยายามสร้าง Peer ด้วย ID_HOST ก่อน
             peer = new Peer(ID_HOST);
 
             peer.on('open', (id) => {
                 peerInfo.textContent = 'สถานะ: อุปกรณ์นี้พร้อมรับการเชื่อมต่อ (Host)';
                 statusText.textContent = 'สถานะ: รอการเชื่อมต่อจากอีกเครื่อง';
                 statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-cyan-500 inline-block shadow-md shadow-cyan-500/50 animate-pulse';
-                
-                // พยายามโทรหาฝั่ง Client เผื่อว่าอีกฝั่งเปิดรออยู่แล้ว
                 tryConnectToPeer(ID_CLIENT);
             });
 
@@ -283,15 +298,12 @@
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
-                    // ถ้า ID_HOST ถูกใช้ไปแล้ว แสดงว่าเครื่องนี้ต้องสวมบทบาทเป็น CLIENT
                     if (peer) try { peer.destroy(); } catch(e) {}
 
                     peer = new Peer(ID_CLIENT);
                     peer.on('open', (id) => {
                         peerInfo.textContent = 'สถานะ: อุปกรณ์นี้เชื่อมต่อไปยัง Host...';
                         statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-cyan-500 inline-block shadow-md shadow-cyan-500/50 animate-pulse';
-                        
-                        // ต่อหา Host ทันที
                         connectToTarget(ID_HOST);
                     });
 
@@ -299,16 +311,9 @@
                         conn = connection;
                         setupConnection();
                     });
-
-                    peer.on('error', (clientErr) => {
-                        console.error(clientErr);
-                    });
-                } else {
-                    console.error(err);
                 }
             });
 
-            // เปิดระบบวนลูปตรวจสอบและพยายามเชื่อมต่อใหม่อัตโนมัติทุกๆ 3 วินาที
             if (!reconnectInterval) {
                 reconnectInterval = setInterval(() => {
                     if (!conn || !conn.open) {
@@ -344,6 +349,9 @@
             }
         }
 
+        // Chunk Receiver State
+        let incomingFiles = {};
+
         function setupConnection() {
             if (!conn) return;
 
@@ -356,11 +364,42 @@
             });
 
             conn.on('data', (data) => {
-                if (data.type === 'text' || data.type === 'file') {
-                    appendMessage({
-                        ...data,
-                        sender: 'remote'
-                    });
+                if (data.type === 'text') {
+                    appendMessage({ ...data, sender: 'remote' });
+                } else if (data.type === 'ping') {
+                    showToast('ซิงค์ข้อมูลสำเร็จจากอุปกรณ์ปลายทาง', 'success');
+                } else if (data.type === 'file-meta') {
+                    incomingFiles[data.fileId] = {
+                        meta: data,
+                        chunks: [],
+                        receivedSize: 0
+                    };
+                    showReceiverProgress(data.name, 0, data.size);
+                } else if (data.type === 'file-chunk') {
+                    const fileContext = incomingFiles[data.fileId];
+                    if (fileContext) {
+                        fileContext.chunks[data.chunkIndex] = data.chunk;
+                        fileContext.receivedSize += data.chunk.byteLength;
+
+                        const percent = Math.floor((fileContext.receivedSize / fileContext.meta.size) * 100);
+                        showReceiverProgress(fileContext.meta.name, percent, fileContext.meta.size);
+
+                        if (fileContext.receivedSize >= fileContext.meta.size) {
+                            const completeBlob = new Blob(fileContext.chunks, { type: fileContext.meta.mime });
+                            appendMessage({
+                                type: 'file',
+                                name: fileContext.meta.name,
+                                mime: fileContext.meta.mime,
+                                size: fileContext.meta.size,
+                                data: completeBlob,
+                                time: getCurrentTime(),
+                                sender: 'remote'
+                            });
+                            hideReceiverProgress();
+                            delete incomingFiles[data.fileId];
+                            showToast('รับไฟล์สำเร็จเรียบร้อย!', 'success');
+                        }
+                    }
                 }
             });
 
@@ -374,9 +413,37 @@
             });
         }
 
+        function showReceiverProgress(name, percent, size) {
+            filePreviewContainer.classList.remove('hidden');
+            previewFileName.textContent = `กำลังรับ: ${name}`;
+            previewFileSize.textContent = formatBytes(size);
+            previewFileIcon.className = 'fa-solid fa-download text-sm animate-bounce text-cyan-400';
+            fileProgressBar.style.width = `${percent}%`;
+            fileProgressText.textContent = `กำลังดาวน์โหลดลงเครื่อง...`;
+            fileProgressPercent.textContent = `${percent}%`;
+            cancelFileBtn.classList.add('hidden');
+        }
+
+        function hideReceiverProgress() {
+            filePreviewContainer.classList.add('hidden');
+            fileProgressBar.style.width = '0%';
+            cancelFileBtn.classList.remove('hidden');
+        }
+
         btnReconnect.addEventListener('click', () => {
             showToast('กำลังพยายามเชื่อมต่อใหม่ทันที...', 'info');
             initAutoConnect();
+        });
+
+        // Manual Refresh / Sync Button Action
+        btnRefreshSync.addEventListener('click', () => {
+            if (conn && conn.open) {
+                conn.send({ type: 'ping' });
+                showToast('รีเฟรชและซิงค์การเชื่อมต่อสำเร็จเรียบร้อย!', 'success');
+            } else {
+                showToast('การเชื่อมต่อหลุด กำลังเชื่อมต่อใหม่...', 'error');
+                initAutoConnect();
+            }
         });
 
         function getCurrentTime() {
@@ -394,7 +461,7 @@
             if (data.type === 'text') {
                 contentHTML = `<p class="text-xs sm:text-sm break-words whitespace-pre-wrap">${escapeHtml(data.text)}</p>`;
             } else if (data.type === 'file') {
-                const blob = new Blob([data.data], { type: data.mime });
+                const blob = data.data instanceof Blob ? data.data : new Blob([data.data], { type: data.mime });
                 const url = URL.createObjectURL(blob);
                 const fileSizeFormatted = formatBytes(data.size);
 
@@ -459,7 +526,6 @@
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            // ผูก Event ให้รูปภาพเปิด Modal เต็มจอ
             messageDiv.querySelectorAll('.preview-img-trigger').forEach(trigger => {
                 trigger.addEventListener('click', () => {
                     const imgUrl = trigger.getAttribute('data-url');
@@ -469,7 +535,6 @@
             });
         }
 
-        // ปิด Modal ภาพเต็มจอ
         closeImageModal.addEventListener('click', () => {
             imageModal.classList.add('hidden');
             modalImage.src = '';
@@ -501,7 +566,7 @@
             if (!text && !selectedFile) return;
 
             if (selectedFile) {
-                sendFile();
+                sendFileChunks();
                 return;
             }
 
@@ -515,10 +580,7 @@
 
             if (conn && conn.open) {
                 conn.send(messageData);
-                appendMessage({
-                    ...messageData,
-                    sender: 'local'
-                });
+                appendMessage({ ...messageData, sender: 'local' });
                 messageInput.value = '';
             } else {
                 showToast('ยังไม่ได้เชื่อมต่อกับอุปกรณ์อื่น', 'error');
@@ -548,7 +610,7 @@
             previewFileIcon.className = 'fa-solid fa-file-image text-sm';
 
             filePreviewContainer.classList.remove('hidden');
-            sendFile();
+            sendFileChunks();
         });
 
         fileInput.addEventListener('change', (e) => {
@@ -568,9 +630,7 @@
             }
 
             filePreviewContainer.classList.remove('hidden');
-
-            // ส่งไฟล์ทันทีอัตโนมัติ ไม่ต้องรอกดปุ่มส่ง
-            sendFile();
+            sendFileChunks();
         });
 
         cancelFileBtn.addEventListener('click', () => {
@@ -580,7 +640,7 @@
             filePreviewContainer.classList.add('hidden');
         });
 
-        function sendFile() {
+        function sendFileChunks() {
             if (!selectedFile) return;
 
             if (!conn || !conn.open) {
@@ -590,39 +650,77 @@
             }
 
             const file = selectedFile;
+            const fileId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            
+            // ส่ง Metadata แจ้งข้อมูลไฟล์ก่อน
+            conn.send({
+                type: 'file-meta',
+                fileId: fileId,
+                name: file.name,
+                mime: file.type,
+                size: file.size
+            });
+
+            filePreviewContainer.classList.remove('hidden');
+            cancelFileBtn.classList.add('hidden');
+
+            let offset = 0;
+            let chunkIndex = 0;
             const reader = new FileReader();
 
-            showToast('กำลังส่งไฟล์เรียลไทม์...', 'info');
+            function readNextChunk() {
+                const slice = file.slice(offset, offset + CHUNK_SIZE);
+                reader.readAsArrayBuffer(slice);
+            }
 
             reader.onload = function(e) {
-                const arrayBuffer = e.target.result;
-                const fileData = {
-                    type: 'file',
-                    name: file.name,
-                    mime: file.type,
-                    size: file.size,
-                    data: arrayBuffer,
-                    time: getCurrentTime()
-                };
-
+                const chunkData = e.target.result;
                 if (conn && conn.open) {
-                    conn.send(fileData);
-                    appendMessage({
-                        ...fileData,
-                        sender: 'local'
+                    conn.send({
+                        type: 'file-chunk',
+                        fileId: fileId,
+                        chunkIndex: chunkIndex,
+                        chunk: chunkData
                     });
-                    
-                    selectedFile = null;
-                    fileInput.value = '';
-                    imageInput.value = '';
-                    filePreviewContainer.classList.add('hidden');
-                    showToast('ส่งไฟล์สำเร็จเรียบร้อย!', 'success');
+
+                    offset += chunkData.byteLength;
+                    chunkIndex++;
+
+                    const percent = Math.min(100, Math.floor((offset / file.size) * 100));
+                    fileProgressBar.style.width = `${percent}%`;
+                    fileProgressText.textContent = `กำลังส่งข้อมูล (${formatBytes(offset)} / ${formatBytes(file.size)})`;
+                    fileProgressPercent.textContent = `${percent}%`;
+
+                    if (offset < file.size) {
+                        readNextChunk();
+                    } else {
+                        setTimeout(() => {
+                            appendMessage({
+                                type: 'file',
+                                name: file.name,
+                                mime: file.type,
+                                size: file.size,
+                                data: file,
+                                time: getCurrentTime(),
+                                sender: 'local'
+                            });
+
+                            filePreviewContainer.classList.add('hidden');
+                            fileProgressBar.style.width = '0%';
+                            cancelFileBtn.classList.remove('hidden');
+                            selectedFile = null;
+                            fileInput.value = '';
+                            imageInput.value = '';
+                            showToast('ส่งไฟล์ขนาดใหญ่สำเร็จเรียบร้อย!', 'success');
+                        }, 300);
+                    }
                 } else {
-                    showToast('การเชื่อมต่อขัดข้อง กรุณาลองเลือกไฟล์ใหม่อีกครั้ง', 'error');
+                    showToast('การเชื่อมต่อขัดข้องระหว่างส่งไฟล์', 'error');
+                    filePreviewContainer.classList.add('hidden');
                 }
             };
 
-            reader.readAsArrayBuffer(file);
+            readNextChunk();
         }
 
         btnClearChat.addEventListener('click', () => {
