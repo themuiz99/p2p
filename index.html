@@ -157,8 +157,16 @@
         สร้างโดย : พี่มุ่ยและหนูมะลิจ้า
     </footer>
 
+    <!-- Fullscreen Image Preview Modal -->
+    <div id="imageModal" class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center hidden p-4">
+        <button id="closeImageModal" class="absolute top-4 right-4 text-white text-xl p-2 bg-slate-800/80 hover:bg-slate-700 rounded-full w-10 h-10 flex items-center justify-center transition-all shadow-lg">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <img id="modalImage" src="" alt="ภาพเต็มจอ" class="max-w-full max-h-full object-contain rounded-lg shadow-2xl">
+    </div>
+
     <!-- Custom Toast / Modal Notification System -->
-    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+    <div id="toastContainer" class="fixed bottom-12 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <!-- JavaScript Application Logic -->
     <script>
@@ -178,6 +186,11 @@
         const previewFileIcon = document.getElementById('previewFileIcon');
         const cancelFileBtn = document.getElementById('cancelFileBtn');
         const btnClearChat = document.getElementById('btnClearChat');
+        
+        // Image Modal Elements
+        const imageModal = document.getElementById('imageModal');
+        const modalImage = document.getElementById('modalImage');
+        const closeImageModal = document.getElementById('closeImageModal');
 
         // Application State & Fixed Global ID for automatic connection
         let peer = null;
@@ -216,7 +229,7 @@
             if (connected) {
                 statusIndicator.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 inline-block shadow-md shadow-emerald-500/50 animate-pulse';
                 statusText.textContent = 'สถานะ: เชื่อมต่อระหว่างอุปกรณ์สำเร็จแล้ว!';
-                peerInfo.textContent = 'พร้อมส่งข้อความและไฟล์หากันได้ทันที';
+                peerInfo.textContent = 'พร้อมส่งข้อความและไฟล์หากันได้สองทางทันที';
                 messageInput.disabled = false;
                 btnSend.disabled = false;
                 showToast('อุปกรณ์เชื่อมต่อหากันเรียบร้อยแล้ว!', 'success');
@@ -310,6 +323,11 @@
         function setupConnection() {
             if (!conn) return;
 
+            // ตรวจสอบสถานะทันทีหากการเชื่อมต่อเปิดอยู่แล้ว (แก้ปัญหาฝั่งแม่ข่ายไม่ปลดล็อกปุ่มส่ง)
+            if (conn.open) {
+                setConnectedState(true);
+            }
+
             conn.on('open', () => {
                 setConnectedState(true);
             });
@@ -360,12 +378,12 @@
                 if (data.mime.startsWith('image/')) {
                     contentHTML = `
                         <div class="flex flex-col gap-1.5">
-                            <a href="${url}" target="_blank" class="block rounded-lg overflow-hidden border border-slate-700 max-w-[200px] sm:max-w-xs">
-                                <img src="${url}" alt="${escapeHtml(data.name)}" class="w-full h-auto object-cover">
-                            </a>
+                            <div class="block rounded-lg overflow-hidden border border-slate-700 max-w-[200px] sm:max-w-xs cursor-pointer preview-img-trigger" data-url="${url}">
+                                <img src="${url}" alt="${escapeHtml(data.name)}" class="w-full h-auto object-cover hover:scale-105 transition-transform duration-300">
+                            </div>
                             <div class="flex items-center justify-between gap-3 text-[11px]">
                                 <span class="truncate max-w-[130px] text-slate-300 font-medium">${escapeHtml(data.name)} (${fileSizeFormatted})</span>
-                                <a href="${url}" download="${escapeHtml(data.name)}" class="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all flex items-center gap-1">
+                                <a href="${url}" download="${escapeHtml(data.name)}" class="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all flex items-center gap-1 shadow">
                                     <i class="fa-solid fa-download"></i> ดาวน์โหลด
                                 </a>
                             </div>
@@ -377,7 +395,7 @@
                             <video src="${url}" controls class="rounded-lg max-w-[220px] sm:max-w-xs border border-slate-700"></video>
                             <div class="flex items-center justify-between gap-3 text-[11px]">
                                 <span class="truncate max-w-[130px] text-slate-300 font-medium">${escapeHtml(data.name)} (${fileSizeFormatted})</span>
-                                <a href="${url}" download="${escapeHtml(data.name)}" class="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all flex items-center gap-1">
+                                <a href="${url}" download="${escapeHtml(data.name)}" class="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all flex items-center gap-1 shadow">
                                     <i class="fa-solid fa-download"></i> ดาวน์โหลด
                                 </a>
                             </div>
@@ -417,7 +435,29 @@
 
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            // ผูก Event ให้รูปภาพเปิด Modal เต็มจอ
+            messageDiv.querySelectorAll('.preview-img-trigger').forEach(trigger => {
+                trigger.addEventListener('click', () => {
+                    const imgUrl = trigger.getAttribute('data-url');
+                    modalImage.src = imgUrl;
+                    imageModal.classList.remove('hidden');
+                });
+            });
         }
+
+        // ปิด Modal ภาพเต็มจอ
+        closeImageModal.addEventListener('click', () => {
+            imageModal.classList.add('hidden');
+            modalImage.src = '';
+        });
+
+        imageModal.addEventListener('click', (e) => {
+            if (e.target === imageModal) {
+                imageModal.classList.add('hidden');
+                modalImage.src = '';
+            }
+        });
 
         function escapeHtml(text) {
             const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
